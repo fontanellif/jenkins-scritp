@@ -10,32 +10,43 @@ import re
 import time
 from datetime import datetime, timedelta
 
+#
+# Dev elopement variable
+#
+
 debug = True
 trace = True
-g_app_name = None
-g_build_dir_path = None
-g_outputfile = None
-g_enable_check_log = False
-g_check_log_filter = ['ERROR','WARNING']
-
-#Internal check
-
-g_created_output_file = False
-g_current_dir = os.path.dirname(os.path.realpath(__file__))
-
-########################
-
-fd_out = None
 
 #=============================================
-#=            Utility function            =
+#=            					Global variables							    =
+#=============================================
+
+g_app_name = None 				# executed application name
+g_build_dir_path = None			# Absolute path of build directory
+
+g_created_output_file = False		#Enable or disable the creation of output file
+g_outputfile = None				# Absolute path plus name of the output file
+g_fd_out = None					# Output file descriptor
+
+g_enable_check_log = False		# Enable or disable the process of check inside the stdout and stderr of the application tests
+g_check_log_filter = ['ERROR','WARNING']
+
+# Catch the current execution dir
+g_current_dir = os.path.dirname(os.path.realpath(__file__))
+
+#=============================================
+#=            					Utility functions							    =
 #=============================================
 
 def checking_exit(exit_state = 0):
 	sys.exit(exit_state)
 
+########################
+
 def trim(str):
 	return str.strip(' \t\n\r')
+
+########################
 
 def mkdir_p(path):
 	try:
@@ -45,11 +56,15 @@ def mkdir_p(path):
 			pass
 		else: raise
 
+########################
+
 def file_exists(path):
 	if os.path.isfile(path) and os.access(path, os.W_OK):
 		return True
 	else:
 		return False
+
+########################
 
 def exe_exists(path):
 	if os.path.isfile(path) and os.access(path, os.X_OK):
@@ -57,16 +72,16 @@ def exe_exists(path):
 	else:
 		return False
 
+########################
+
 def help(exit_state=0):
 	print 'check_log.py -i <appname> -d<builddirectory> -o <outputfile>'
 	sys.exit(exit_state)
 	pass
 
 
-#-----  End of Utility function  ------
-
 #=============================================
-#=            Command line  function            =
+#=           				 Command line  functions			                =
 #=============================================
 
 def parse_command_line_option(argv):
@@ -115,6 +130,7 @@ def parse_command_line_option(argv):
 			pass
 	pass
 
+########################
 
 def check_paramenters():
 	global g_app_name
@@ -129,26 +145,19 @@ def check_paramenters():
 
 	if trace: print 'TRACE: Checking parameters'
 
-	# if not g_app_name.startswith('.') :
-	# 	if debug: print 'Fix application name'
-	# 	g_app_name = '.' + g_app_name
-	# 	pass
-	#
-	#
+
 	if not g_build_dir_path.endswith('/') :
-		if debug : print 'Fix end build directory path'
+		if debug : print 'Fix end character of build directory path'
 		g_build_dir_path = g_build_dir_path + '/'
 		pass
 
 	if not g_build_dir_path.startswith('/') and not g_build_dir_path.startswith('.') :
-		if debug : print 'Fix start build directory path'
+		if debug : print 'Fix start character of build directory path'
 		g_build_dir_path = g_current_dir + '/' + g_build_dir_path
 		pass
 
-	if debug : print g_build_dir_path+g_app_name
-
 	if not exe_exists(g_build_dir_path+g_app_name):
-		print 'ERROR: Missing exe file'
+		print 'ERROR: Missing exe file: ', g_build_dir_path+g_app_name
 		checking_exit(1)
 		pass
 
@@ -156,38 +165,47 @@ def check_paramenters():
 
 	pass
 
-#-----  End of Command line function  ------
+#=============================================
+#=           				 Output file  functions				                =
+#=============================================
 
 def open_output_file():
 	global g_outputfile
-	global fd_out
+	global g_fd_out
 	current_time = time.time()
 	print 'current_time:' , current_time
 	try:
-		fd_out = open(g_outputfile, "w")
+		g_fd_out = open(g_outputfile, "w")
 	except IOError:
 		print "ERROR: Unable to create file on disk." , g_outputfile
 		checking_exit(2)
 	pass
 
+########################
+
 def close_output_file():
-	global fd_out
-	fd_out.close()
+	global g_fd_out
+	g_fd_out.close()
 	pass
+
+########################
 
 def print_output_file(text):
 	global g_created_output_file
-	global fd_out
+	global g_fd_out
 
 	if not g_created_output_file:  create_output_file()
 	try:
-		fd_out.write(text)
+		g_fd_out.write(text)
 	except IOError:
 		print "ERROR: Unable to write in file.", g_outputfile
 		checking_exit(2)
 	pass
 
 
+#=============================================
+#=           				 Test application  functions			                =
+#=============================================
 
 def test_application(options = None):
 	global g_app_name
@@ -216,15 +234,10 @@ def test_application(options = None):
 	return ret
 	pass
 
+#=============================================
+#=           				 		Main functions 				                =
+#=============================================
 
-
-
-
-
-
-########################
-#  Main
-########################
 def main(argv):
 	global g_app_name
 	global g_build_dir_path
@@ -243,7 +256,10 @@ def main(argv):
 	if output_test['exit_code'] != 0 :
 		print output_test
 
-# Don't remove
+
+#=============================================
+# Do not remove
+
 if __name__ == "__main__":
    main(sys.argv[1:])
 
