@@ -5,24 +5,25 @@ import sys, getopt
 import sys, commands, fcntl, errno
 import shutil
 import glob
-import subprocess
+import subprocess as sub
 import re
 import time
 from datetime import datetime, timedelta
+import threading
+
 
 #
 # Dev elopement variable
 #
 
 debug = False
-trace = False
 
 #########################################################
 #=            					Default values 								    =
 #########################################################
 
 g_test_options = ['--version','-h']
-g_check_log_find = ['ERROR','WARNING']
+g_check_log_to_find = ['ERROR','WARNING']
 g_check_log_to_skip = [ ]
 
 #########################################################
@@ -44,6 +45,34 @@ g_enable_check_log = False		# Enable or disable the process of check inside the 
 # Catch the current execution dir
 g_current_dir = os.getcwd()
 
+#########################################################
+#=           				 		RunCmd class 	 				                =
+#########################################################
+
+class RunCmd(threading.Thread):
+	def __init__(self, cmd, timeout):
+		threading.Thread.__init__(self)
+		self.cmd = cmd
+		self.timeout = timeout
+		self.stdout = None
+		self.stderr = None
+		self.exit_code = None
+
+	def run(self):
+		self.p = sub.Popen(self.cmd, stdout=sub.PIPE,stderr=sub.PIPE, shell=True)
+		self.pid = self.p.pid
+		self.p.wait()
+
+	def Run(self):
+		self.start()
+		self.join(self.timeout)
+
+		if self.is_alive():
+			self.p.terminate()      #use self.p.kill() if process needs a kill -9
+			self.join()
+
+		(self.stdout , self.stderr) = self.p.communicate()
+		self.exit_code = self.p.returncode
 
 #########################################################
 #=            					Utility functions							    =
@@ -55,7 +84,7 @@ def checking_exit(exit_state = 0):
 
 ########################
 
-def read_file_2_list(path):
+def read_file_to_list(path):
 	content = []
 
 	if file_exists(path):
@@ -123,8 +152,8 @@ def help(exit_state=0):
 	print ' -f	| Find file'
 	print ' -s	| Skip file'
 	print ' -l 	| Enable_check_log'
-	print '-v 	| Verbose mode'
-	print '-h 	| This help'
+	print ' -v 	| Verbose mode'
+	print ' -h 	| This help'
 	sys.exit(exit_state)
 	pass
 
@@ -168,13 +197,11 @@ def parse_command_line_option(argv):
 	global g_build_dir_path
 	global g_outputfile
 	global g_enable_check_log
-	global g_check_log_find
+	global g_check_log_to_find
 	global g_test_file
 	global g_find_file
 	global g_skip_file
 	global debug
-
-	if trace: print 'TRACE: Parsing command line option'
 
 	try:
 		opts, args = getopt.getopt(argv,"vlhi:d:f:s:t:")
@@ -216,23 +243,22 @@ def check_paramenters():
 	global g_build_dir_path
 	global g_outputfile
 	global g_enable_check_log
-	global g_check_log_find
-	global g_check_log_skip
+	global g_check_log_to_find
+	global g_check_log_to_skip
 	global g_current_dir
 	global g_test_options
 	global g_test_file
 	global g_find_file
 	global g_skip_file
 
-	if trace: print 'TRACE: Checking parameters'
 
 	if not g_build_dir_path.endswith('/') :
-		if debug : print 'DEBUG: Fix end character of build directory path'
+		# if debug : print 'DEBUG: Fix end character of build directory path'
 		g_build_dir_path = g_build_dir_path + '/'
 		pass
 
 	if not g_build_dir_path.startswith('/') and not g_build_dir_path.startswith('.') :
-		if debug : print 'DEBUG: Fix start character of build directory path'
+		# if debug : print 'DEBUG: Fix start character of build directory path'
 		g_build_dir_path = g_current_dir + '/' + g_build_dir_path
 		pass
 
@@ -242,18 +268,18 @@ def check_paramenters():
 		pass
 
 	if g_test_file != None:
-		g_test_options = read_file_2_list(g_test_file)
-		if debug : print 'DEBUG: Test => ' + g_test_options
+		g_test_options = read_file_to_list(g_test_file)
+		if debug : print 'DEBUG: Test => ' , g_test_options
 
 	if g_find_file != None:
-		g_check_log_find = read_file_2_list(g_find_file)
-		if debug : print 'DEBUG: Find => ' + g_check_log_find
+		g_check_log_to_find = read_file_to_list(g_find_file)
+		if debug : print 'DEBUG: Find => ' , g_check_log_to_find
 
 	if g_skip_file != None:
-		g_check_log_to_skip = read_file_2_list(g_skip_file)
-		if debug : print 'DEBUG: Skip => ' + g_check_log_to_skip
+		g_check_log_to_skip = read_file_to_list(g_skip_file)
+		if debug : print 'DEBUG: Skip => ' , g_check_log_to_skip
 
-	if debug : print 'DEBUG: ' + g_build_dir_path+g_app_name
+	if debug  : print 'DEBUG: Cmq =>   ' + g_build_dir_path+g_app_name
 
 
 	pass
@@ -319,18 +345,26 @@ def test_application(options = None):
 
 	os.chdir(g_build_dir_path)
 
-	if trace: print 'TRACE: Go to build directory  ' , g_build_dir_path
-	if debug: print 'DEBUG: Directory [Actual: ' + os.getcwd() + ', Script: ' + g_current_dir
-	if trace: print 'TRACE: Exe command: ' , cmd
+	# if debug:
+		# print 'DEBUG: Go to build directory  ' , g_build_dir_path
+	 	# print 'DEBUG: Directory [Actual: ' + os.getcwd() + ', Script: ' + g_current_dir
 
-	try:
-		proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=subprocess.PIPE, shell=True)
-		ret['pid'] = proc.pid
-		(ret['stdout'], ret['stderr']) = proc.communicate()
-		ret['exit_code'] = proc.returncode
-	except Exception as e:
-		print "ERROR: ",e
-	pass
+	print 'Cmd:' , cmd
+
+	x = RunCmd(cmd, 30)
+	x.Run()
+	ret['pid'] = x.pid
+	ret['stdout'] = x.stdout
+	ret['stderr'] = x.stderr
+	ret['exit_code'] = x.exit_code
+
+	if debug:
+		print 'Start process information'
+		print x.pid
+		print x.stdout
+		print x.stderr
+		print x.exit_code
+		print 'End process information'
 
 	os.chdir(g_current_dir)
 
@@ -340,26 +374,29 @@ def test_application(options = None):
 
 def check_log_output(p_output_test):
 	global g_exit
+
+	l_output_test = p_output_test
+	error_found = False
 	if g_enable_check_log:
 
-			for filter_str in g_check_log_find:
-				if debug: print "DEBUG: grep ", filter_str
-				p_output_test['error'] = 0
-				p_output_test['check_log'] = grep(filter_str, p_output_test['stdout'], g_check_log_to_skip)
+			for filter_str in g_check_log_to_find:
 
-				if p_output_test['check_log']:
-					p_output_test['error'] = 1
+				l_output_test['error'] = 0
+				l_output_test['check_log'] = grep(filter_str, l_output_test['stdout'], g_check_log_to_skip)
+
+				if l_output_test['check_log']:
+					l_output_test['error'] = 1
 					g_exit = 1
 				pass
 
 
-			if p_output_test['error'] == 0:
-				print 'OK: Success checking log.'
-			else:
-				print 'ERROR: Error checking log, found: ' , filter_str
-				print_list_error(p_output_test['check_log'])
+				if l_output_test['error'] == 0:
+					print 'OK: Success checking log for', filter_str
+				else:
+					print 'ERROR: Error checking log, found: ' , filter_str
+					print_list_error(l_output_test['check_log'])
 
-	return p_output_test
+	return l_output_test
 	pass
 
 
@@ -367,6 +404,7 @@ def do_test():
 
 	global g_check_log_to_skip
 	global g_test_options
+	global g_exit
 
 	tests = []
 
@@ -398,17 +436,12 @@ def main(argv):
 	global g_outputfile
 	global g_exit
 
-
-	if trace: print 'TRACE: Start checking process'
-
 	parse_command_line_option(argv)
 	check_paramenters()
 
 	do_test()
 
 	checking_exit(g_exit)
-
-	if trace: print 'TRACE: End checking process'
 
 	pass
 
