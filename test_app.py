@@ -14,37 +14,52 @@ from datetime import datetime, timedelta
 # Dev elopement variable
 #
 
-debug = True
-trace = True
+debug = False
+trace = False
 
 #=============================================
 #=            					Global variables							    =
 #=============================================
+g_exit = 0
 
 g_app_name = None 				# executed application name
 g_build_dir_path = None			# Absolute path of build directory
+g_test_options = ['--version','-h']
+
 
 g_created_output_file = False		#Enable or disable the creation of output file
 g_outputfile = None				# Absolute path plus name of the output file
 g_fd_out = None					# Output file descriptor
 
 g_enable_check_log = False		# Enable or disable the process of check inside the stdout and stderr of the application tests
-g_check_log_filter = ['ERROR','WARNING']
-
+g_check_log_filter = ['ERROR']
+g_check_log_to_skip = ['license', 'no error', 'ERROR: *', 'ERROR: for']
 # Catch the current execution dir
-g_current_dir = os.path.dirname(os.path.realpath(__file__))
+g_current_dir = os.getcwd()
+
+
+g_tests = [ {'option' : "--version", "filter" : ['ERROR','WARNING'] , 'to_skip': ['license'] } ,
+			{'option' : "-h", "filter" : ['ERROR','WARNING'] , 'to_skip': ['license'] }  ]
 
 #=============================================
 #=            					Utility functions							    =
 #=============================================
 
 def checking_exit(exit_state = 0):
+	if debug: print "DEBUG: Exit code:", exit_state
 	sys.exit(exit_state)
 
 ########################
 
 def trim(str):
 	return str.strip(' \t\n\r')
+
+########################
+
+def print_list_error(p_list):
+	for x in p_list:
+		print x
+		pass
 
 ########################
 
@@ -79,6 +94,36 @@ def help(exit_state=0):
 	sys.exit(exit_state)
 	pass
 
+########################
+
+def getCmd(app_name=None, options =None):
+	if (app_name == None) or (options == None):
+		return ''
+	else:
+		return './' + app_name + ' ' + options
+		pass
+	pass
+
+########################
+
+def grep(m,s,v=[]):
+	l_lines = s.splitlines()
+	l_found = []
+
+	for line in l_lines:
+		l_to_skip = False
+
+		for less in v:
+			if (less in line):
+				l_to_skip = True
+				continue
+
+		if l_to_skip: continue
+
+		if (m.lower() in line) or (m.upper() in line): l_found.append(line)
+
+	return l_found
+
 
 #=============================================
 #=           				 Command line  functions			                =
@@ -90,16 +135,17 @@ def parse_command_line_option(argv):
 	global g_outputfile
 	global g_enable_check_log
 	global g_check_log_filter
+	global debug
 
 	if trace: print 'TRACE: Parsing command line option'
 
 	if debug:
-		print 'Number of arguments:', len(sys.argv), 'arguments.'
-		print 'Argument List:', str(sys.argv)
+		print 'DEBUG: Number of arguments:', len(sys.argv), 'arguments.'
+		print 'DEBUG:  Argument List:', str(sys.argv)
 		pass
 
 	try:
-		opts, args = getopt.getopt(argv,"lhi:d:o:",["enable_check_log=","app_name=","build_dir=","output_file="])
+		opts, args = getopt.getopt(argv,"vlhi:d:o:",["--verbose","enable_check_log=","app_name=","build_dir=","output_file="])
 	except getopt.GetoptError:
 		help(2)
 
@@ -114,6 +160,8 @@ def parse_command_line_option(argv):
 			g_outputfile = trim(arg)
 		elif opt in ("-l", "--enable_check_log"):
 			g_enable_check_log = True
+		elif opt in ("-v", "--verbose"):
+			debug = True
 
 	if ( (g_app_name == None)  or (g_build_dir_path == None) ):
 		print ' ERROR: Missing some mandatory parameters'
@@ -121,12 +169,12 @@ def parse_command_line_option(argv):
 		pass
 
 	if debug:
-		print 'App name is "', g_app_name
-		print 'Build directory is ', g_build_dir_path
-		print 'Output file is "', g_outputfile
+		print 'DEBUG: App name is ', g_app_name
+		print 'DEBUG: Build directory is ', g_build_dir_path
+		print 'DEBUG: Output file is ', g_outputfile
 		if g_enable_check_log:
-			print 'Enabled check log'
-			print 'Check filter:', g_check_log_filter
+			print 'DEBUG: Enabled check log'
+			print 'DEBUG: Check filter:', g_check_log_filter
 			pass
 	pass
 
@@ -139,9 +187,6 @@ def check_paramenters():
 	global g_enable_check_log
 	global g_check_log_filter
 	global g_current_dir
-
-	print g_current_dir
-	print g_app_name
 
 	if trace: print 'TRACE: Checking parameters'
 
@@ -161,7 +206,7 @@ def check_paramenters():
 		checking_exit(1)
 		pass
 
-	if debug : print g_build_dir_path+g_app_name
+	if debug : print 'DEBUG: ' g_build_dir_path+g_app_name
 
 	pass
 
@@ -210,6 +255,8 @@ def print_output_file(text):
 def test_application(options = None):
 	global g_app_name
 	global g_build_dir_path
+	global g_current_dir
+
 
 	if options == None:
 		print "ERROR: Missing application options"
@@ -220,8 +267,14 @@ def test_application(options = None):
 	pid = None
 	cmd = None
 
-	cmd = '.' + g_build_dir_path + g_app_name + ' ' + options
+	cmd = getCmd(g_app_name, options)
+
+	os.chdir(g_build_dir_path)
+
+	if trace: print 'TRACE: Go to build directory  ' , g_build_dir_path
+	if debug: print 'DEBUG: Directory [Actual: ' + os.getcwd() + ', Script: ' + g_current_dir
 	if trace: print 'TRACE: Exe command: ' , cmd
+
 	try:
 		proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,stderr=subprocess.PIPE, shell=True)
 		ret['pid'] = proc.pid
@@ -231,7 +284,40 @@ def test_application(options = None):
 		print "ERROR: ",e
 	pass
 
+	os.chdir(g_current_dir)
+
 	return ret
+	pass
+
+
+def do_test():
+
+	global g_check_log_to_skip
+	global g_test_options
+	global g_exit
+
+	tests = []
+
+	for test in g_test_options:
+		output_test = None
+
+		if trace: print 'TRACE: Do test: ' , test
+
+		output_test =  test_application(test)
+
+		for filter_str in g_check_log_filter:
+			output_test['check_log'] = grep(filter_str, output_test['stdout'], g_check_log_to_skip)
+
+			if output_test['check_log']:
+				print 'Found: ' , filter_str
+				print_list_error(output_test['check_log'])
+				g_exit = 1
+
+			pass
+
+		tests.append(output_test)
+
+	return tests
 	pass
 
 #=============================================
@@ -242,19 +328,17 @@ def main(argv):
 	global g_app_name
 	global g_build_dir_path
 	global g_outputfile
+	global g_exit
 
-	output_test = None
 
 	if trace: print 'TRACE: Start checking process'
 
 	parse_command_line_option(argv)
 	check_paramenters()
-	output_test =  test_application('--version')
-	if output_test['exit_code'] != 0 :
-		print output_test
-	output_test =  test_application('-h')
-	if output_test['exit_code'] != 0 :
-		print output_test
+	do_test()
+	checking_exit(g_exit)
+
+	pass
 
 
 #=============================================
