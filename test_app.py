@@ -17,10 +17,11 @@ from datetime import datetime, timedelta
 debug = False
 trace = False
 
-#=============================================
+#########################################################
 #=            					Global variables							    =
-#=============================================
-g_exit = 0
+#########################################################
+
+g_exit = 0							#Final exit state
 
 g_app_name = None 				# executed application name
 g_build_dir_path = None			# Absolute path of build directory
@@ -31,22 +32,26 @@ g_created_output_file = False		#Enable or disable the creation of output file
 g_outputfile = None				# Absolute path plus name of the output file
 g_fd_out = None					# Output file descriptor
 
+
 g_enable_check_log = False		# Enable or disable the process of check inside the stdout and stderr of the application tests
-g_check_log_filter = ['ERROR']
-g_check_log_to_skip = ['license', 'no error', 'ERROR: *', 'ERROR: for']
+g_check_log_filter = ['ERROR','WARNING']
+g_check_log_to_skip = [	'license',
+							'no error',
+							'ERROR: *',
+							'WARNING: No interfaces available']
 # Catch the current execution dir
 g_current_dir = os.getcwd()
 
-
+#test new features
 g_tests = [ {'option' : "--version", "filter" : ['ERROR','WARNING'] , 'to_skip': ['license'] } ,
 			{'option' : "-h", "filter" : ['ERROR','WARNING'] , 'to_skip': ['license'] }  ]
 
-#=============================================
+#########################################################
 #=            					Utility functions							    =
-#=============================================
+#########################################################
 
 def checking_exit(exit_state = 0):
-	if debug: print "DEBUG: Exit code:", exit_state
+	print "DEBUG: Exit code:", exit_state
 	sys.exit(exit_state)
 
 ########################
@@ -90,7 +95,11 @@ def exe_exists(path):
 ########################
 
 def help(exit_state=0):
-	print 'check_log.py -i <appname> -d<builddirectory> -o <outputfile>'
+
+	print 'test.py -i <appname> -d<builddirectory>'
+	print '           -l 	|	 -- enable_check_log			| enable_check_log'
+	print '           -o 	| 	--output_file <todo>  		| create log file'
+	print '           -v 	| 	--verbose			    			| verbose mode'
 	sys.exit(exit_state)
 	pass
 
@@ -125,9 +134,9 @@ def grep(m,s,v=[]):
 	return l_found
 
 
-#=============================================
+#########################################################
 #=           				 Command line  functions			                =
-#=============================================
+#########################################################
 
 def parse_command_line_option(argv):
 	global g_app_name
@@ -190,7 +199,6 @@ def check_paramenters():
 
 	if trace: print 'TRACE: Checking parameters'
 
-
 	if not g_build_dir_path.endswith('/') :
 		if debug : print 'Fix end character of build directory path'
 		g_build_dir_path = g_build_dir_path + '/'
@@ -206,13 +214,13 @@ def check_paramenters():
 		checking_exit(1)
 		pass
 
-	if debug : print 'DEBUG: ' g_build_dir_path+g_app_name
+	if debug : print 'DEBUG: ' + g_build_dir_path+g_app_name
 
 	pass
 
-#=============================================
+#########################################################
 #=           				 Output file  functions				                =
-#=============================================
+#########################################################
 
 def open_output_file():
 	global g_outputfile
@@ -248,9 +256,9 @@ def print_output_file(text):
 	pass
 
 
-#=============================================
+#########################################################
 #=           				 Test application  functions			                =
-#=============================================
+#########################################################
 
 def test_application(options = None):
 	global g_app_name
@@ -290,39 +298,58 @@ def test_application(options = None):
 	pass
 
 
+def check_log_output(p_output_test):
+	global g_exit
+	if g_enable_check_log:
+
+			for filter_str in g_check_log_filter:
+				if debug: print "DEBUG: grep ", filter_str
+				p_output_test['error'] = 0
+				p_output_test['check_log'] = grep(filter_str, p_output_test['stdout'], g_check_log_to_skip)
+
+				if p_output_test['check_log']:
+					p_output_test['error'] = 1
+					g_exit = 1
+				pass
+
+
+			if p_output_test['error'] == 0:
+				print 'OK: Success checking log.'
+			else:
+				print 'ERROR: Error checking log, found: ' , filter_str
+				print_list_error(p_output_test['check_log'])
+
+	return p_output_test
+	pass
+
+
 def do_test():
 
 	global g_check_log_to_skip
 	global g_test_options
-	global g_exit
 
 	tests = []
 
 	for test in g_test_options:
 		output_test = None
 
-		if trace: print 'TRACE: Do test: ' , test
-
+		print '\nTEST: ' + test
 		output_test =  test_application(test)
 
-		for filter_str in g_check_log_filter:
-			output_test['check_log'] = grep(filter_str, output_test['stdout'], g_check_log_to_skip)
+		if output_test['exit_code'] == 0 :
+			print 'OK: Success test.'
+		else:
+			print 'ERROR: Error test, return code = ', output_test['exit_code']
 
-			if output_test['check_log']:
-				print 'Found: ' , filter_str
-				print_list_error(output_test['check_log'])
-				g_exit = 1
-
-			pass
-
+		output_test = check_log_output(output_test)
 		tests.append(output_test)
 
 	return tests
 	pass
 
-#=============================================
+#########################################################
 #=           				 		Main functions 				                =
-#=============================================
+#########################################################
 
 def main(argv):
 	global g_app_name
@@ -338,10 +365,12 @@ def main(argv):
 	do_test()
 	checking_exit(g_exit)
 
+	if trace: print 'TRACE: End checking process'
+
 	pass
 
 
-#=============================================
+#########################################################
 # Do not remove
 
 if __name__ == "__main__":
