@@ -18,41 +18,63 @@ debug = False
 trace = False
 
 #########################################################
+#=            					Default values 								    =
+#########################################################
+
+g_test_options = ['--version','-h']
+g_check_log_find = ['ERROR','WARNING']
+g_check_log_to_skip = [ ]
+
+#########################################################
 #=            					Global variables							    =
 #########################################################
 
 g_exit = 0							#Final exit state
 
 g_app_name = None 				# executed application name
-g_build_dir_path = None			# Absolute path of build directory
-g_test_options = ['--version','-h']
-
+g_build_dir_path = None			# Absolute or relative path of build directory
+g_test_file = None					# Absolute path of test file. It must contains 1 option (--version or -h) for each line
 
 g_created_output_file = False		#Enable or disable the creation of output file
 g_outputfile = None				# Absolute path plus name of the output file
 g_fd_out = None					# Output file descriptor
 
-
 g_enable_check_log = False		# Enable or disable the process of check inside the stdout and stderr of the application tests
-g_check_log_filter = ['ERROR','WARNING']
-g_check_log_to_skip = [	'license',
-							'no error',
-							'ERROR: *',
-							'WARNING: No interfaces available']
+
 # Catch the current execution dir
 g_current_dir = os.getcwd()
 
-#test new features
-g_tests = [ {'option' : "--version", "filter" : ['ERROR','WARNING'] , 'to_skip': ['license'] } ,
-			{'option' : "-h", "filter" : ['ERROR','WARNING'] , 'to_skip': ['license'] }  ]
 
 #########################################################
 #=            					Utility functions							    =
 #########################################################
 
 def checking_exit(exit_state = 0):
-	print "DEBUG: Exit code:", exit_state
+	print "\nTEST: Exit code:", exit_state
 	sys.exit(exit_state)
+
+########################
+
+def read_file_2_list(path):
+	content = []
+
+	if file_exists(path):
+		with open(path) as f:
+    			content = f.readlines()
+    		content = [x.strip('\n') for x in content]
+
+    	return content
+    	pass
+
+  ########################
+
+def conf_file_exists(path):
+	if os.path.isfile(path) and os.access(path, os.R_OK):
+		return True
+	else:
+		print 'ERROR: Unable to find/read: ', path
+		checking_exit(1)
+		pass
 
 ########################
 
@@ -96,10 +118,13 @@ def exe_exists(path):
 
 def help(exit_state=0):
 
-	print 'test.py -i <appname> -d<builddirectory>'
-	print '           -l 	|	 -- enable_check_log			| enable_check_log'
-	print '           -o 	| 	--output_file <todo>  		| create log file'
-	print '           -v 	| 	--verbose			    			| verbose mode'
+	print 'test.py -i <appname> -d<app directory>'
+	print ' -t 	| Test file'
+	print ' -f	| Find file'
+	print ' -s	| Skip file'
+	print ' -l 	| Enable_check_log'
+	print '-v 	| Verbose mode'
+	print '-h 	| This help'
 	sys.exit(exit_state)
 	pass
 
@@ -143,33 +168,38 @@ def parse_command_line_option(argv):
 	global g_build_dir_path
 	global g_outputfile
 	global g_enable_check_log
-	global g_check_log_filter
+	global g_check_log_find
+	global g_test_file
+	global g_find_file
+	global g_skip_file
 	global debug
 
 	if trace: print 'TRACE: Parsing command line option'
 
-	if debug:
-		print 'DEBUG: Number of arguments:', len(sys.argv), 'arguments.'
-		print 'DEBUG:  Argument List:', str(sys.argv)
-		pass
-
 	try:
-		opts, args = getopt.getopt(argv,"vlhi:d:o:",["--verbose","enable_check_log=","app_name=","build_dir=","output_file="])
+		opts, args = getopt.getopt(argv,"vlhi:d:f:s:t:")
 	except getopt.GetoptError:
 		help(2)
 
 	for opt, arg in opts:
 		if opt == '-h':
 			help()
-		elif opt in ("-i", "--app_name"):
+		elif opt in "-i":
 			g_app_name = trim(arg)
-		elif opt in ("-d", "--build_dir"):
+		elif opt in "-d":
 			g_build_dir_path = trim(arg)
-		elif opt in ("-o", "--output_file"):
-			g_outputfile = trim(arg)
-		elif opt in ("-l", "--enable_check_log"):
+		elif opt in "-t":
+			g_test_file = trim(arg)
+			conf_file_exists(g_test_file)
+		elif opt in "-f":
+			g_find_file = trim(arg)
+			conf_file_exists(g_find_file)
+		elif opt in "-s":
+			g_skip_file = trim(arg)
+			conf_file_exists(g_skip_file)
+		elif opt in "-l":
 			g_enable_check_log = True
-		elif opt in ("-v", "--verbose"):
+		elif opt in "-v":
 			debug = True
 
 	if ( (g_app_name == None)  or (g_build_dir_path == None) ):
@@ -177,14 +207,6 @@ def parse_command_line_option(argv):
 		help(1)
 		pass
 
-	if debug:
-		print 'DEBUG: App name is ', g_app_name
-		print 'DEBUG: Build directory is ', g_build_dir_path
-		print 'DEBUG: Output file is ', g_outputfile
-		if g_enable_check_log:
-			print 'DEBUG: Enabled check log'
-			print 'DEBUG: Check filter:', g_check_log_filter
-			pass
 	pass
 
 ########################
@@ -194,18 +216,23 @@ def check_paramenters():
 	global g_build_dir_path
 	global g_outputfile
 	global g_enable_check_log
-	global g_check_log_filter
+	global g_check_log_find
+	global g_check_log_skip
 	global g_current_dir
+	global g_test_options
+	global g_test_file
+	global g_find_file
+	global g_skip_file
 
 	if trace: print 'TRACE: Checking parameters'
 
 	if not g_build_dir_path.endswith('/') :
-		if debug : print 'Fix end character of build directory path'
+		if debug : print 'DEBUG: Fix end character of build directory path'
 		g_build_dir_path = g_build_dir_path + '/'
 		pass
 
 	if not g_build_dir_path.startswith('/') and not g_build_dir_path.startswith('.') :
-		if debug : print 'Fix start character of build directory path'
+		if debug : print 'DEBUG: Fix start character of build directory path'
 		g_build_dir_path = g_current_dir + '/' + g_build_dir_path
 		pass
 
@@ -214,7 +241,20 @@ def check_paramenters():
 		checking_exit(1)
 		pass
 
+	if g_test_file != None:
+		g_test_options = read_file_2_list(g_test_file)
+		if debug : print 'DEBUG: Test => ' + g_test_options
+
+	if g_find_file != None:
+		g_check_log_find = read_file_2_list(g_find_file)
+		if debug : print 'DEBUG: Find => ' + g_check_log_find
+
+	if g_skip_file != None:
+		g_check_log_to_skip = read_file_2_list(g_skip_file)
+		if debug : print 'DEBUG: Skip => ' + g_check_log_to_skip
+
 	if debug : print 'DEBUG: ' + g_build_dir_path+g_app_name
+
 
 	pass
 
@@ -302,7 +342,7 @@ def check_log_output(p_output_test):
 	global g_exit
 	if g_enable_check_log:
 
-			for filter_str in g_check_log_filter:
+			for filter_str in g_check_log_find:
 				if debug: print "DEBUG: grep ", filter_str
 				p_output_test['error'] = 0
 				p_output_test['check_log'] = grep(filter_str, p_output_test['stdout'], g_check_log_to_skip)
@@ -340,6 +380,7 @@ def do_test():
 			print 'OK: Success test.'
 		else:
 			print 'ERROR: Error test, return code = ', output_test['exit_code']
+			g_exit = 1
 
 		output_test = check_log_output(output_test)
 		tests.append(output_test)
@@ -362,7 +403,9 @@ def main(argv):
 
 	parse_command_line_option(argv)
 	check_paramenters()
+
 	do_test()
+
 	checking_exit(g_exit)
 
 	if trace: print 'TRACE: End checking process'
