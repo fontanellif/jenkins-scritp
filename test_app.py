@@ -25,6 +25,7 @@ debug = False
 g_test_options = ['--version','-h']
 g_check_log_to_find = ['ERROR','WARNING']
 g_check_log_to_skip = [ ]
+g_timeout = 15
 
 #########################################################
 #=            					Global variables							    =
@@ -35,6 +36,8 @@ g_exit = 0							#Final exit state
 g_app_name = None 				# executed application name
 g_build_dir_path = None			# Absolute or relative path of build directory
 g_test_file = None					# Absolute path of test file. It must contains 1 option (--version or -h) for each line
+g_find_file = None					# Absolute path of test file. It must contains 1 option (--version or -h) for each line
+g_skip_file = None					# Absolute path of test file. It must contains 1 option (--version or -h) for each line
 
 g_created_output_file = False		#Enable or disable the creation of output file
 g_outputfile = None				# Absolute path plus name of the output file
@@ -79,8 +82,14 @@ class RunCmd(threading.Thread):
 #########################################################
 
 def checking_exit(exit_state = 0):
-	print "\nTEST: Exit code:", exit_state
+	print '\n###########################################################################\n'
+	print "TEST: Exit code:", exit_state
 	sys.exit(exit_state)
+
+########################
+
+def trim(str):
+	return str.strip(' \t\n\r')
 
 ########################
 
@@ -89,7 +98,11 @@ def read_file_to_list(path):
 
 	if file_exists(path):
 		with open(path) as f:
-    			content = f.readlines()
+			for line in f:
+				if not line.startswith('#'):
+					content.append(line)
+					pass
+
     		content = [x.strip('\n') for x in content]
 
     	return content
@@ -104,11 +117,6 @@ def conf_file_exists(path):
 		print 'ERROR: Unable to find/read: ', path
 		checking_exit(1)
 		pass
-
-########################
-
-def trim(str):
-	return str.strip(' \t\n\r')
 
 ########################
 
@@ -201,10 +209,11 @@ def parse_command_line_option(argv):
 	global g_test_file
 	global g_find_file
 	global g_skip_file
+	global g_timeout
 	global debug
 
 	try:
-		opts, args = getopt.getopt(argv,"vlhi:d:f:s:t:")
+		opts, args = getopt.getopt(argv,"vlhi:d:f:s:t:w:")
 	except getopt.GetoptError:
 		help(2)
 
@@ -224,6 +233,10 @@ def parse_command_line_option(argv):
 		elif opt in "-s":
 			g_skip_file = trim(arg)
 			conf_file_exists(g_skip_file)
+		elif opt in "-w":
+			g_timeout = int(trim(arg))
+			if (g_timeout <= 0):
+				g_timeout = 10
 		elif opt in "-l":
 			g_enable_check_log = True
 		elif opt in "-v":
@@ -330,6 +343,7 @@ def test_application(options = None):
 	global g_app_name
 	global g_build_dir_path
 	global g_current_dir
+	global g_timeout
 
 
 	if options == None:
@@ -351,7 +365,7 @@ def test_application(options = None):
 
 	print 'Cmd:' , cmd
 
-	x = RunCmd(cmd, 30)
+	x = RunCmd([g_app_name, options], g_timeout)
 	x.Run()
 	ret['pid'] = x.pid
 	ret['stdout'] = x.stdout
@@ -359,12 +373,11 @@ def test_application(options = None):
 	ret['exit_code'] = x.exit_code
 
 	if debug:
-		print 'Start process information'
-		print x.pid
-		print x.stdout
-		print x.stderr
-		print x.exit_code
-		print 'End process information'
+		print '\nPID =>', x.pid
+		print 'STDOUT =>', x.stdout
+		print 'STDERR =>', x.stderr
+		print 'EXIT =>', x.exit_code
+		print '\n'
 
 	os.chdir(g_current_dir)
 
@@ -382,7 +395,7 @@ def check_log_output(p_output_test):
 			for filter_str in g_check_log_to_find:
 
 				l_output_test['error'] = 0
-				l_output_test['check_log'] = grep(filter_str, l_output_test['stdout'], g_check_log_to_skip)
+				l_output_test['check_log'] = grep(filter_str, l_output_test['stdout'] +l_output_test['stderr'], g_check_log_to_skip)
 
 				if l_output_test['check_log']:
 					l_output_test['error'] = 1
@@ -410,14 +423,14 @@ def do_test():
 
 	for test in g_test_options:
 		output_test = None
-
-		print '\nTEST: ' + test
+		print '\n###########################################################################\n'
+		print 'TEST: ' + test
 		output_test =  test_application(test)
 
 		if output_test['exit_code'] == 0 :
-			print 'OK: Success test.'
+			print 'OK: Success test, exit code = ', output_test['exit_code']
 		else:
-			print 'ERROR: Error test, return code = ', output_test['exit_code']
+			print 'ERROR: Error test, exit code = ', output_test['exit_code']
 			g_exit = 1
 
 		output_test = check_log_output(output_test)
